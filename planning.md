@@ -32,16 +32,25 @@ Student-generated course and professor review knowledge for UC Berkeley Computer
 
 ## Chunking Strategy
 
-**Approach:** Comment-based chunking with size constraints
+**Approach:** Comment-based chunking with an embedding-aware size cap and overlap
 
 **Strategy:**
-- Main post text: Split into chunks if exceeds 2000 characters (by paragraph boundary)
-- Each top-level Reddit comment: Treated as one chunk (preserves complete review/opinion)
-- Long comments (>2000 characters): Split by paragraph or sentence boundary, not mid-thought
-- No fixed overlap; chunk boundaries respect Reddit's natural comment structure
+- Each Reddit comment (and reply) is treated as one chunk, preserving a complete review/opinion as its own retrievable unit.
+- Cleaning before chunking: unescape HTML entities, normalize whitespace, and drop `[deleted]`/`[removed]` text, bot comments (AutoModerator, etc.), stickied moderator comments, and anything shorter than 30 characters (one-word noise like "lol", "+1").
+- **Size cap: 800 characters.** Any post body or comment longer than this is split on paragraph boundaries first, then sentence boundaries, then (last resort) a hard character cut — never mid-word.
+- **Overlap: ~120 characters (≈1 sentence)** carried from the end of one piece into the start of the next, but **only between pieces of the same split item.** Standalone comments have no overlap.
+- **Context enrichment (not embedded):** each comment chunk also stores the thread title + original post (the question/topic) in a separate `context` field. This is *not* part of the embedded text — it is attached so the generation step can interpret a terse chunk (e.g. "Sharma being the goat") against the question it answered.
 
 **Reasoning:**
-Reddit professor reviews are organized as discrete student opinions. Each comment is typically one cohesive thought about a professor or course. Fixed token-size chunking risks splitting a recommendation across boundaries, losing context. Comment-based chunking respects Reddit's structure, makes retrieval results more interpretable (each chunk is a complete opinion), and simplifies source attribution (each comment is one source unit). Chunk sizes will be naturally uneven (50–2000 tokens), which FAISS handles without issue.
+Reddit professor reviews are organized as discrete student opinions, so comment-based chunking respects that structure, keeps each chunk interpretable (one complete opinion), and makes source attribution clean (each chunk maps to one comment).
+
+The 800-character cap is tuned to the embedding model: `all-MiniLM-L6-v2` only encodes its first **256 tokens (~1,000 characters)**, so anything longer is silently truncated and becomes unsearchable. My original 2,000-character cap left **13 long posts/reviews (8% of the corpus) with their tails dropped at embedding time**; the 800-char cap (effective max ~921 chars with overlap) keeps every chunk fully inside the model's window.
+
+The ~120-character overlap is a deliberate change from my original "no overlap" plan: when a long review is split into 2–3 pieces, an argument can break across a boundary, so carrying one sentence of context preserves continuity. It is limited to pieces of a single split item so short standalone comments are never bloated.
+
+The separate `context` field avoids two failure modes that would come from stuffing the post body into every chunk's embedded text: (1) truncation, since a long prefix would push the comment itself past the 256-token limit, and (2) homogenization, where a shared prefix pulls all of a thread's chunks toward the same vector and makes "I love Sahai" hard to distinguish from "avoid Sahai."
+
+**Final chunk count:** 185 chunks across 10 documents (lengths 30–921 characters), up from 160 under the original 2,000-character cap. FAISS handles the uneven sizes without issue.
 
 ---
 
@@ -80,8 +89,8 @@ For this student-review corpus, a lightweight semantic embedding model is a good
 
 ```mermaid
 graph LR
-    A["Document Ingestion<br/>(requests/BeautifulSoup)"] 
-    B["Chunking<br/>(tiktoken)"] 
+    A["Document Ingestion<br/>(saved Reddit JSON / .txt)"] 
+    B["Chunking<br/>(comment-based,<br/>char cap + overlap)"] 
     C["Embedding<br/>(sentence-transformers<br/>all-MiniLM-L6-v2)"]
     D["Vector Store<br/>(FAISS)"]
     E["Retrieval<br/>(semantic similarity<br/>top-5)"] 
@@ -99,8 +108,8 @@ graph LR
 ```
 
 **Pipeline stages:**
-- **Document Ingestion:** Fetch Reddit thread HTML, parse thread text, extract main post + comments, strip navigation/metadata
-- **Chunking:** Split by Reddit comment boundaries; cap long comments at 2000 characters using paragraph breaks
+- **Document Ingestion:** Load each thread from a locally saved Reddit `.json` export (or a `.txt` copy), parse the post + comments, and clean them (unescape HTML, drop deleted/removed/bot/short comments). Live web fetching is out of scope: Reddit blocks unauthenticated requests (HTTP 403) and the only working route is the OAuth API, which adds credentials and a dependency we don't need.
+- **Chunking:** Split by Reddit comment boundaries; cap posts/comments at 800 characters (tuned to the embedding model's ~1,000-char window) using paragraph → sentence breaks, with ~120-char overlap between pieces of one split item.
 - **Embedding:** Convert chunks to vectors using all-MiniLM-L6-v2
 - **Vector Store:** Index embeddings in FAISS for fast similarity search
 - **Retrieval:** Semantic similarity search, return top-5 relevant chunks
