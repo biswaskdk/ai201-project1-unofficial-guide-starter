@@ -71,9 +71,11 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
      Do not just say "I told it to use the documents" — show the actual instruction or explain
      the mechanism. -->
 
-**System prompt grounding instruction:**
+**System prompt grounding instruction:** The system prompt gives the model four hard rules (see `generator.py` → `SYSTEM_PROMPT`): (1) *"Use only information found in the CONTEXT. Do not use any outside or prior knowledge, and do not guess or extrapolate."* (2) *"If the CONTEXT does not contain enough information to answer, reply with exactly this sentence and nothing else: 'I don't have enough information on that.'"* (3) cite sources inline by bracket number, e.g. `[1]` or `[2][3]`. (4) quote professor and course names exactly as they appear. The model runs at `temperature=0.1` to minimize improvisation. The instruction is an enforced *requirement* (the model must reply with the exact decline sentence), not a soft suggestion.
 
-**How source attribution is surfaced in the response:**
+Beyond the prompt, grounding is enforced **structurally**: before generation, retrieved chunks with a cosine distance above `RELEVANCE_CUTOFF = 0.7` are dropped, and if *no* chunk clears that bar the system declines programmatically without ever calling the LLM. This is why an out-of-domain question ("What is the best dorm dining hall on campus?") returns the decline sentence — the retrieved chunks are too far away to count as evidence.
+
+**How source attribution is surfaced in the response:** Attribution is **guaranteed programmatically**, not left to the model. After generation, `ask()` builds the `sources` list directly from the retrieved chunks' metadata (`source_title` + `source_url`), deduplicated in retrieval order — so the cited sources always correspond to real documents that were actually in the context, even if the model forgot to add `[n]` markers. The interface (`app.py`) shows these under a "Retrieved from" panel alongside the answer. When the system declines (no relevant context), the source list is empty. The model *also* cites bracket numbers inline as a readability aid, but the programmatic list is the source of truth.
 
 ---
 
@@ -85,14 +87,15 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
 
 | # | Question | Expected answer | System response (summarized) | Retrieval quality | Response accuracy |
 |---|----------|-----------------|------------------------------|-------------------|-------------------|
-| 1 | | | | | |
-| 2 | | | | | |
-| 3 | | | | | |
-| 4 | | | | | |
-| 5 | | | | | |
+| 1 | Which upper-division CS courses are must-takes? | Specific course numbers (e.g. CS 170/189/164) | Named CS 162, CS 70, CS 189, EECS 127, Data C102, CS 188; noted the thread itself disputes the word "must-take". Cited sources. | Relevant (src 8 "Must-take CS upper divs?") | Partially accurate — real courses pulled from context, but scattered; got 189/162, not the 170/164 emphasis expected |
+| 2 | Why do students quit/leave the CS major? | Burnout, harsh grading/curve, competitiveness, lost passion | Cited the "bona fide curve" in 70/170, a curve that's "never a function of effort," and one student calling CS "an average major… with lukewarm salaries." | Relevant (src 3 "Why I Quit CS", all hits) | Accurate |
+| 3 | What qualities describe excellent CS professors? | Clear/engaging lectures, helpful, fair grading | "Excellent lecturer," "nicest/most helpful," "engaging"; named DeNero, Yun Song, Jaijeet Roychowdhury. | Relevant (src 7 "Best Professors") | Partially accurate — captures lecturing/helpfulness, but leans toward naming professors over abstract qualities |
+| 4 | Name a professor described as approachable. | A specific named professor | **Pamela Fox** — "one of the nicest/most approachable people." Cited. | Relevant (src 9/7) | Accurate |
+| 5 | Consequence of taking a difficult intro prof? | Harder exams, stress, lower grades, more outside help | "A bad mental breakdown and an embarrassingly low score," softened by a generous failing policy. | Partially relevant | Partially accurate — on-theme but thin; the corpus covers this only loosely |
+| — | *Out-of-domain control:* "Best dorm dining hall on campus?" | Should decline | "I don't have enough information on that." (no sources) | n/a (gated out) | Correct refusal — grounding held |
 
-**Retrieval quality:** Relevant / Partially relevant / Off-target  
-**Response accuracy:** Accurate / Partially accurate / Inaccurate
+**Retrieval quality:** Relevant (4 of 5 strong, 1 partial; the right source thread topped every in-domain query)  
+**Response accuracy:** Accurate to Partially accurate — every answer was grounded in retrieved text with source citations, no hallucinations, and the out-of-domain question was correctly declined.
 
 ---
 
