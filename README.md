@@ -1,9 +1,9 @@
 # The Unofficial Guide — Project 1
 
-> **How to use this template:**
-> Complete each section *after* you've built and tested the corresponding part of your system.
-> Do not write placeholder text — if a section isn't done yet, leave it blank and come back.
-> Every section below is required for submission. One-liners will not receive full credit.
+A retrieval-augmented question-answering system over student reviews of UC Berkeley CS courses and professors. Ask a natural-language question and get an answer grounded **only** in r/berkeley student discussions, with the source threads cited.
+
+**Pipeline:** `ingest.py` (load + clean + chunk) → `retriever.py` (embed + ChromaDB) → `generator.py` (grounded Groq answer) → `app.py` (Gradio UI).
+**Run:** `python ingest.py` → `python retriever.py` → `python app.py` (needs `GROQ_API_KEY` in `.env`).
 
 ---
 
@@ -50,12 +50,6 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
 
 ## Embedding Model
 
-<!-- Name the embedding model you used and explain your choice.
-     Then answer: if you were deploying this system for real users and cost wasn't a constraint,
-     what tradeoffs would you weigh in choosing a different model?
-     Consider: context length limits, multilingual support, accuracy on domain-specific text,
-     latency, and local vs. API-hosted. -->
-
 **Model used:** `all-MiniLM-L6-v2` (sentence-transformers), run locally — no API key, no rate limits. It produces 384-dimensional embeddings. I embed each chunk's `text` field and store the vectors in a persistent ChromaDB collection using cosine distance, with the source metadata attached to every chunk. I chose it as the recommended lightweight default: it is fast on CPU, free, and accurate enough on short student-opinion text. Its 256-token (~1,000-character) context window also directly shaped my chunking — it is why I capped chunks at 800 characters, so no chunk is truncated at embedding time.
 
 **Production tradeoff reflection:** If I were deploying this for real users and cost weren't a constraint, I would weigh a larger or domain-tuned embedding model, or a hosted embedding API. The tradeoffs: (1) **Context length** — a model with a larger window would let me keep long reviews whole instead of splitting them, preserving more semantic context per vector. (2) **Domain accuracy** — MiniLM can treat professor nicknames and course codes (e.g. "61B", "Hilfinger") as low-signal tokens; a stronger or fine-tuned model would capture that nuance better. (3) **Latency & local vs. API** — local embedding is private (these are student opinions) and has no rate limits, whereas a hosted API adds latency and a privacy consideration but may improve quality. I saw the model's limits concretely in testing: it retrieved well on topical queries, but ranked a generic, referent-less reply chunk highly because a small model leans on surface lexical overlap — a more capable model would likely down-weight it (see Failure Case Analysis).
@@ -63,13 +57,6 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
 ---
 
 ## Grounded Generation
-
-<!-- Explain how your system enforces grounding — how does it prevent the LLM from answering
-     beyond the retrieved documents?
-     Describe both your system prompt (what instruction you gave the model) and any structural
-     choices (e.g., how you formatted the context, whether you filtered low-relevance chunks).
-     Do not just say "I told it to use the documents" — show the actual instruction or explain
-     the mechanism. -->
 
 **System prompt grounding instruction:** The system prompt gives the model four hard rules (see `generator.py` → `SYSTEM_PROMPT`): (1) *"Use only information found in the CONTEXT. Do not use any outside or prior knowledge, and do not guess or extrapolate."* (2) *"If the CONTEXT does not contain enough information to answer, reply with exactly this sentence and nothing else: 'I don't have enough information on that.'"* (3) cite sources inline by bracket number, e.g. `[1]` or `[2][3]`. (4) quote professor and course names exactly as they appear. The model runs at `temperature=0.1` to minimize improvisation. The instruction is an enforced *requirement* (the model must reply with the exact decline sentence), not a soft suggestion.
 
@@ -81,10 +68,6 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 
 ## Evaluation Report
 
-<!-- Run your 5 test questions from planning.md through your system and record the results.
-     Be honest — a partially accurate or inaccurate result that you explain well is more
-     valuable than a suspiciously perfect result. -->
-
 | # | Question | Expected answer | System response (summarized) | Retrieval quality | Response accuracy |
 |---|----------|-----------------|------------------------------|-------------------|-------------------|
 | 1 | Which upper-division CS courses are must-takes? | Specific course numbers (e.g. CS 170/189/164) | Named CS 162, CS 70, CS 189, EECS 127, Data C102, CS 188; noted the thread itself disputes the word "must-take". Cited sources. | Relevant (src 8 "Must-take CS upper divs?") | Partially accurate — real courses pulled from context, but scattered; got 189/162, not the 170/164 emphasis expected |
@@ -92,7 +75,7 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 | 3 | What qualities describe excellent CS professors? | Clear/engaging lectures, helpful, fair grading | "Excellent lecturer," "nicest/most helpful," "engaging"; named DeNero, Yun Song, Jaijeet Roychowdhury. | Relevant (src 7 "Best Professors") | Partially accurate — captures lecturing/helpfulness, but leans toward naming professors over abstract qualities |
 | 4 | Name a professor described as approachable. | A specific named professor | **Pamela Fox** — "one of the nicest/most approachable people." Cited. | Relevant (src 9/7) | Accurate |
 | 5 | Consequence of taking a difficult intro prof? | Harder exams, stress, lower grades, more outside help | "A bad mental breakdown and an embarrassingly low score," softened by a generous failing policy. | Partially relevant | Partially accurate — on-theme but thin; the corpus covers this only loosely |
-| — | *Out-of-domain control:* "Best dorm dining hall on campus?" | Should decline | "I don't have enough information on that." (no sources) | n/a (gated out) | Correct refusal — grounding held |
+| — | *Out-of-domain control:* "Who will win the World Cup 2026?" | Should decline | "I don't have enough information on that." (no sources) | n/a (gated out) | Correct refusal — grounding held |
 
 **Retrieval quality:** Relevant (4 of 5 strong, 1 partial; the right source thread topped every in-domain query)  
 **Response accuracy:** Accurate to Partially accurate — every answer was grounded in retrieved text with source citations, no hallucinations, and the out-of-domain question was correctly declined.
@@ -100,17 +83,6 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 ---
 
 ## Failure Case Analysis
-
-<!-- Identify at least one question where retrieval or generation did not work as expected.
-     Write a specific explanation of *why* it failed, tied to a part of the pipeline.
-
-     "The answer was wrong" is not an explanation.
-
-     "The relevant information was split across a chunk boundary, so retrieval returned
-     only half the context — the model didn't have enough to answer correctly" is an explanation.
-
-     "The embedding model treated the professor's nickname as out-of-vocabulary and returned
-     results from an unrelated review" is an explanation. -->
 
 **Question that failed:** "What happens if you take a hard professor for an intro CS class?" (the same chunk also wrongly topped "What qualities make a CS professor great?").
 
@@ -124,9 +96,6 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 
 ## Spec Reflection
 
-<!-- Reflect on how planning.md shaped your implementation.
-     Answer both questions with at least 2–3 sentences each. -->
-
 **One way the spec helped you during implementation:** Writing the Documents list, Chunking Strategy, and Retrieval Approach *before* any code meant I could direct the implementation precisely instead of improvising. For example, because the spec already said "each Reddit comment = one chunk," the ingestion code had a clear target, and I could verify the output against the spec (comment boundaries preserved, sizes uneven) rather than guessing whether the chunking was "right." The spec turned vague intentions into concrete acceptance criteria I could check at each stage.
 
 **One way your implementation diverged from the spec, and why:** I diverged on the chunk size — the spec said split only above 2,000 characters with no overlap, but I lowered the cap to 800 characters and added ~120-character overlap. The reason was a constraint the spec hadn't accounted for: the embedding model (`all-MiniLM-L6-v2`) only encodes its first 256 tokens (~1,000 characters), so my original 2,000-char chunks were having their tails silently truncated and made unsearchable (13 chunks, ~8% of the corpus). Aligning the cap to the model's window fixed that, and the overlap preserves continuity when a long review is split. (I also diverged on two implementation details for the same "fit reality" reason: ingestion loads saved Reddit `.json` files instead of live `requests`/BeautifulSoup scraping, because Reddit 403-blocks unauthenticated requests, and the vector store is ChromaDB instead of FAISS for native metadata filtering and persistence. I updated `planning.md` to reflect all three.)
@@ -134,15 +103,6 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 ---
 
 ## AI Usage
-
-<!-- Describe at least 2 specific instances where you used an AI tool during this project.
-     For each: what did you give the AI as input, what did it produce, and what did you
-     change, override, or direct differently?
-
-     "I used Claude to help me code" is not sufficient.
-     "I gave Claude my Chunking Strategy section from planning.md and asked it to implement
-     chunk_text(). It returned a function using a fixed character split. I overrode the
-     chunk size from 500 to 200 because my documents are short reviews, not long guides." -->
 
 **Instance 1 — Ingestion and chunking**
 
