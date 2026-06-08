@@ -32,12 +32,16 @@ Student-generated course and professor review knowledge for UC Berkeley Computer
 
 ## Chunking Strategy
 
-**Chunk size:** 400-500 tokens (roughly 2,000-2,500 characters)
+**Approach:** Comment-based chunking with size constraints
 
-**Overlap:** 80-100 tokens
+**Strategy:**
+- Main post text: Split into chunks if exceeds 2000 characters (by paragraph boundary)
+- Each top-level Reddit comment: Treated as one chunk (preserves complete review/opinion)
+- Long comments (>2000 characters): Split by paragraph or sentence boundary, not mid-thought
+- No fixed overlap; chunk boundaries respect Reddit's natural comment structure
 
 **Reasoning:**
-Berkeley Reddit threads include a mix of short comments, longer top-level posts, and nested discussion. A moderate chunk size keeps each chunk focused on a single professor recommendation or course observation while still preserving the surrounding opinion context. Overlap prevents splitting a key recommendation across two chunks, which is especially important when comment text crosses a sentence boundary.
+Reddit professor reviews are organized as discrete student opinions. Each comment is typically one cohesive thought about a professor or course. Fixed token-size chunking risks splitting a recommendation across boundaries, losing context. Comment-based chunking respects Reddit's structure, makes retrieval results more interpretable (each chunk is a complete opinion), and simplifies source attribution (each comment is one source unit). Chunk sizes will be naturally uneven (50–2000 tokens), which FAISS handles without issue.
 
 ---
 
@@ -56,11 +60,11 @@ For this student-review corpus, a lightweight semantic embedding model is a good
 
 | # | Question | Expected answer |
 |---|----------|-----------------|
-| 1 | Which upper-division CS classes do Berkeley students repeatedly recommend as must-takes? | Students repeatedly call out CS 164, CS 170, and CS 189 as top upper-division CS courses. |
-| 2 | In the "Why I Quit CS" thread, what are the main reasons students say they left the major? | The thread emphasizes burnout, grading pressure, and poor course support or instructor communication. |
-| 3 | What do students say makes a Berkeley CS professor especially good in the "Best Professors" thread? | Students highlight clear lectures, helpful office hours, and fair grading. |
-| 4 | Which professors are recommended as approachable mentors in "Cool Professors to Talk To"? | The thread recommends professors who are known to be supportive, accessible, and engaged outside class. |
-| 5 | What warning do students give about taking a hard CS professor in an intro class? | The warning is that difficult professors can increase stress, make exams feel less predictable, and require stronger use of office hours and feedback. |
+| 1 | Which upper-division CS courses are mentioned as must-takes in the "Must-take CS upper divs?" thread? Name at least two. | The thread explicitly recommends CS 170, CS 189, CS 164, and/or other specific upper-division courses by number. |
+| 2 | List at least two specific reasons students cite in "Why I Quit CS" for leaving the major. | The thread mentions: burnout/overwork, harsh grading, difficult professors, lack of support, imposter syndrome, or mental health struggles. |
+| 3 | What three qualities do students in "Best Professors" use to describe excellent CS professors? | Students cite: clear/engaging lectures, helpful/available office hours, fair/transparent grading, good feedback, or accessibility. |
+| 4 | Name at least one specific professor mentioned in "Cool Professors to Talk To" as approachable. | The thread names a specific professor by name (e.g., "Professor [X]" or "Dr. [Y]") and describes them as supportive, accessible, or research-engaged. |
+| 5 | What specific consequence of taking a difficult CS professor in an intro class is mentioned in the threads? | Students warn: harder exams, higher stress, lower grades, difficulty learning fundamentals, or need for more outside help. |
 
 ---
 
@@ -68,29 +72,49 @@ For this student-review corpus, a lightweight semantic embedding model is a good
 
 1. Reddit threads contain a lot of noise, off-topic replies, and quote text; preprocessing must remove navigation and keep only substantive student opinions.
 
-2. Key details may be split across adjacent comments or chunk boundaries, so poor chunking could cause retrieval to miss the complete recommendation.
+2. Parsing Reddit's HTML or JSON structure correctly to extract comments without losing metadata (author, timestamp) needed for source attribution. Also, very long comments (>2000 chars) need intelligent paragraph-boundary splitting to avoid orphaned thoughts.
 
 ---
 
 ## Architecture
 
-Document Ingestion ? Chunking ? Embedding + Vector Store ? Retrieval ? Generation
+```mermaid
+graph LR
+    A["Document Ingestion<br/>(requests/BeautifulSoup)"] 
+    B["Chunking<br/>(tiktoken)"] 
+    C["Embedding<br/>(sentence-transformers<br/>all-MiniLM-L6-v2)"]
+    D["Vector Store<br/>(FAISS)"]
+    E["Retrieval<br/>(semantic similarity<br/>top-5)"] 
+    F["Generation<br/>(Claude/Groq API)"]
+    
+    A --> B --> C --> D
+    D --> E --> F
+    
+    style A fill:#e1f5ff
+    style B fill:#e1f5ff
+    style C fill:#fff3e0
+    style D fill:#fff3e0
+    style E fill:#f3e5f5
+    style F fill:#f3e5f5
+```
 
-- Document Ingestion: fetch Reddit thread HTML / raw thread text, strip UI and metadata
-- Chunking: split cleaned text into overlapping chunks using the chosen token size
-- Embedding + Vector Store: embed each chunk with sentence-transformers and store in FAISS or similar
-- Retrieval: semantic similarity search with top-5 chunks
-- Generation: prompt an LLM with retrieved chunks and ask for a grounded, cited answer
+**Pipeline stages:**
+- **Document Ingestion:** Fetch Reddit thread HTML, parse thread text, extract main post + comments, strip navigation/metadata
+- **Chunking:** Split by Reddit comment boundaries; cap long comments at 2000 characters using paragraph breaks
+- **Embedding:** Convert chunks to vectors using all-MiniLM-L6-v2
+- **Vector Store:** Index embeddings in FAISS for fast similarity search
+- **Retrieval:** Semantic similarity search, return top-5 relevant chunks
+- **Generation:** Prompt LLM with retrieved chunks, enforce grounding, add source citations
 
 ---
 
 ## AI Tool Plan
 
 **Milestone 3 — Ingestion and chunking:**
-I will use an AI coding assistant to implement `load_documents()` and `chunk_text()` from this planning spec. I will give the model the Documents list and Chunking Strategy sections and verify the output by inspecting cleaned text and chunk lengths.
+I will use Claude Code to implement `load_documents()` and `chunk_text()` from this planning spec. I will give the model the Documents list and Chunking Strategy sections and verify the output by inspecting cleaned text and chunk lengths.
 
 **Milestone 4 — Embedding and retrieval:**
-I will prompt the AI assistant with the Retrieval Approach and the vector store design. The output should be a working embedding pipeline plus a `query()` function. I will verify it by running search queries and checking that the retrieved chunks match expected thread topics.
+I will prompt Claude Code with the Retrieval Approach and the vector store design. The output should be a working embedding pipeline plus a `query()` function. I will verify it by running search queries and checking that the retrieved chunks match expected thread topics.
 
 **Milestone 5 — Generation and interface:**
-I will use the AI assistant to design the grounding prompt and a simple command-line or notebook query wrapper. I will verify by asking sample questions and confirming that the answer cites the source URLs or chunk IDs.
+I will use Claude Code to design the grounding prompt and a simple command-line or notebook query wrapper. I will verify by asking sample questions and confirming that the answer cites the source URLs or chunk IDs.
