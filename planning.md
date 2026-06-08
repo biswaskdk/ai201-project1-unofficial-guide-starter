@@ -48,7 +48,7 @@ Berkeley Reddit threads include a mix of short comments, longer top-level posts,
 **Top-k:** 5
 
 **Production tradeoff reflection:**
-For this student-review corpus, a lightweight semantic embedding model is a good starting point because it balances speed, cost, and relevance for short opinion text. In production, I would weigh larger or domain-tuned embeddings for better nuance on professor/course names, while also considering whether a hosted API is acceptable for privacy and latency. If international student content were included, I would choose a multilingual model or add keyword filtering to supplement embeddings.
+For this student-review corpus, a lightweight semantic embedding model is a good starting point because it balances speed, cost, and relevance for short opinion text. In production, I would weigh larger or domain-tuned embeddings for better nuance on professor/course names, while also considering whether a hosted API is acceptable for privacy and latency. 
 
 ---
 
