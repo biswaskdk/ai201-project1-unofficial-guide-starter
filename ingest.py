@@ -405,7 +405,8 @@ def report(all_chunks, loaded, missing):
               f"(save their .json into documents/raw/ and re-run)")
 
     if not all_chunks:
-        print("\nNo chunks produced. See the network note at the top of this file.")
+        print("\nNo chunks produced. Save each thread's .json into documents/raw/ "
+              "(see the MISSING messages above) and re-run.")
         return
 
     lengths = [c["char_len"] for c in all_chunks]

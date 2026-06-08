@@ -111,12 +111,24 @@ def build_index(rebuild=False):
     return col
 
 
-def retrieve(query, k=TOP_K, col=None):
+def list_sources():
+    """Return [(source_id, source_title), ...] unique and ordered by id —
+    used to populate the 'filter by source' dropdown (stretch: metadata filtering)."""
+    seen = {}
+    for c in load_chunks():
+        seen.setdefault(c["source_id"], c["source_title"])
+    return [(sid, seen[sid]) for sid in sorted(seen)]
+
+
+def retrieve(query, k=TOP_K, col=None, where=None):
     """Return the top-k chunks for a query as a list of
-    {text, metadata, distance} dicts, nearest first."""
+    {text, metadata, distance} dicts, nearest first.
+
+    `where` is an optional ChromaDB metadata filter, e.g. {"source_id": 3} to
+    restrict the search to a single source thread (stretch: metadata filtering)."""
     col = col or get_client().get_collection(COLLECTION)
     q_emb = get_model().encode([query], normalize_embeddings=True)[0].tolist()
-    res = col.query(query_embeddings=[q_emb], n_results=k,
+    res = col.query(query_embeddings=[q_emb], n_results=k, where=where,
                     include=["documents", "metadatas", "distances"])
     hits = []
     for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0],

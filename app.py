@@ -14,6 +14,12 @@ Run:  python app.py    then open http://localhost:7860
 import gradio as gr
 
 from generator import ask
+from retriever import list_sources
+
+# "All sources" (no filter) plus one entry per source thread (stretch: metadata filtering).
+SOURCE_CHOICES = [("All sources", None)] + [
+    (title, sid) for sid, title in list_sources()
+]
 
 
 def format_chunks(hits):
@@ -31,11 +37,11 @@ def format_chunks(hits):
     return "\n\n".join(blocks)
 
 
-def handle_query(question):
+def handle_query(question, source_id):
     question = (question or "").strip()
     if not question:
         return "Please enter a question.", "", ""
-    result = ask(question)
+    result = ask(question, source_id=source_id)
     sources = "\n".join(f"• {s}" for s in result["sources"]) or "(none)"
     chunks = format_chunks(result["hits"])
     return result["answer"], sources, chunks
@@ -52,6 +58,11 @@ with gr.Blocks(title="The Unofficial Guide — Berkeley CS") as demo:
         label="Your question",
         placeholder="e.g. Which upper-division CS courses are must-takes?",
     )
+    source_dd = gr.Dropdown(
+        choices=SOURCE_CHOICES,
+        value=None,
+        label="Filter by source (optional)",
+    )
     btn = gr.Button("Ask", variant="primary")
     answer = gr.Textbox(label="Answer", lines=8)
     sources = gr.Textbox(label="Retrieved from", lines=4)
@@ -67,8 +78,8 @@ with gr.Blocks(title="The Unofficial Guide — Berkeley CS") as demo:
         visible=False,
     )
 
-    btn.click(handle_query, inputs=inp, outputs=[answer, sources, chunks_box])
-    inp.submit(handle_query, inputs=inp, outputs=[answer, sources, chunks_box])
+    btn.click(handle_query, inputs=[inp, source_dd], outputs=[answer, sources, chunks_box])
+    inp.submit(handle_query, inputs=[inp, source_dd], outputs=[answer, sources, chunks_box])
     # Show/hide the chunks box when the toggle flips (content persists either way).
     console_toggle.change(lambda on: gr.update(visible=on),
                           inputs=console_toggle, outputs=chunks_box)

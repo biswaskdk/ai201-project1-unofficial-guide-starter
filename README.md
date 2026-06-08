@@ -127,9 +127,9 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
 <!-- Reflect on how planning.md shaped your implementation.
      Answer both questions with at least 2–3 sentences each. -->
 
-**One way the spec helped you during implementation:**
+**One way the spec helped you during implementation:** Writing the Documents list, Chunking Strategy, and Retrieval Approach *before* any code meant I could direct the implementation precisely instead of improvising. For example, because the spec already said "each Reddit comment = one chunk," the ingestion code had a clear target, and I could verify the output against the spec (comment boundaries preserved, sizes uneven) rather than guessing whether the chunking was "right." The spec turned vague intentions into concrete acceptance criteria I could check at each stage.
 
-**One way your implementation diverged from the spec, and why:**
+**One way your implementation diverged from the spec, and why:** I diverged on the chunk size — the spec said split only above 2,000 characters with no overlap, but I lowered the cap to 800 characters and added ~120-character overlap. The reason was a constraint the spec hadn't accounted for: the embedding model (`all-MiniLM-L6-v2`) only encodes its first 256 tokens (~1,000 characters), so my original 2,000-char chunks were having their tails silently truncated and made unsearchable (13 chunks, ~8% of the corpus). Aligning the cap to the model's window fixed that, and the overlap preserves continuity when a long review is split. (I also diverged on two implementation details for the same "fit reality" reason: ingestion loads saved Reddit `.json` files instead of live `requests`/BeautifulSoup scraping, because Reddit 403-blocks unauthenticated requests, and the vector store is ChromaDB instead of FAISS for native metadata filtering and persistence. I updated `planning.md` to reflect all three.)
 
 ---
 
@@ -144,14 +144,14 @@ Beyond the prompt, grounding is enforced **structurally**: before generation, re
      chunk_text(). It returned a function using a fixed character split. I overrode the
      chunk size from 500 to 200 because my documents are short reviews, not long guides." -->
 
-**Instance 1**
+**Instance 1 — Ingestion and chunking**
 
-- *What I gave the AI:*
-- *What it produced:*
-- *What I changed or overrode:*
+- *What I gave the AI:* My `planning.md` Documents list (10 Reddit threads) and Chunking Strategy section (comment-based, with a size cap), plus the constraint that live scraping was failing.
+- *What it produced:* `ingest.py` — a pipeline that loads saved Reddit `.json`, cleans it (HTML unescape, drop deleted/bot/short comments), and chunks it comment-by-comment with paragraph/sentence splitting for long items.
+- *What I changed or overrode:* I overrode the chunk cap from 2,000 to 800 characters after recognizing the embedding model truncates at 256 tokens, and added ~120-char overlap (the spec said none). I also directed a design decision the AI hadn't proposed: a separate non-embedded `context` field carrying the thread's question, so terse comments stay interpretable at generation time without polluting the embeddings.
 
-**Instance 2**
+**Instance 2 — Retrieval and grounded generation**
 
-- *What I gave the AI:*
-- *What it produced:*
-- *What I changed or overrode:*
+- *What I gave the AI:* My Retrieval Approach (all-MiniLM-L6-v2, top-5) and the grounding requirement (answer from retrieved context only, with source attribution).
+- *What it produced:* `retriever.py` (embed chunks → ChromaDB → `retrieve()`) and `generator.py` (a grounding prompt that calls Groq's `llama-3.3-70b-versatile`), plus a Gradio interface.
+- *What I changed or overrode:* I directed the ChromaDB collection to use cosine distance so scores matched the milestone's 0–1 scale, and added a structural guardrail the prompt alone didn't give: a 0.7 cosine-distance gate that declines out-of-domain questions *before* calling the LLM. I also made source attribution programmatic (built from retrieved metadata) rather than trusting the model to cite correctly.

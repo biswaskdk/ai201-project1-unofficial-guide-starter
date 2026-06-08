@@ -91,9 +91,13 @@ def sources_from(hits):
     return out
 
 
-def ask(question, k=TOP_K):
-    """End-to-end: retrieve -> ground -> generate. Returns {answer, sources, hits}."""
-    hits = retrieve(question, k=k)
+def ask(question, k=TOP_K, source_id=None):
+    """End-to-end: retrieve -> ground -> generate. Returns {answer, sources, hits}.
+
+    `source_id` (optional) restricts retrieval to a single source thread via a
+    ChromaDB metadata filter (stretch: metadata filtering)."""
+    where = {"source_id": source_id} if source_id is not None else None
+    hits = retrieve(question, k=k, where=where)
     relevant = [h for h in hits if h["distance"] <= RELEVANCE_CUTOFF]
     if not relevant:
         # Nothing close enough to trust -> decline without inventing sources.

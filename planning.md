@@ -120,10 +120,26 @@ graph LR
 ## AI Tool Plan
 
 **Milestone 3 — Ingestion and chunking:**
-I will use Claude Code to implement `load_documents()` and `chunk_text()` from this planning spec. I will give the model the Documents list and Chunking Strategy sections and verify the output by inspecting cleaned text and chunk lengths.
+I used Claude Code to implement `load_source()` and `build_chunks()` (in `ingest.py`) from this planning spec. I gave the model the Documents list and Chunking Strategy sections and verified the output by inspecting cleaned text and chunk lengths (185 chunks, 30–921 chars).
 
 **Milestone 4 — Embedding and retrieval:**
-I will prompt Claude Code with the Retrieval Approach and the vector store design. The output should be a working embedding pipeline plus a `query()` function. I will verify it by running search queries and checking that the retrieved chunks match expected thread topics.
+I prompted Claude Code with the Retrieval Approach and the vector store design. The output was a working embedding pipeline plus a `retrieve()` function (in `retriever.py`, ChromaDB). I verified it by running the evaluation queries and checking that the retrieved chunks matched the expected thread topics and had low cosine distances.
 
 **Milestone 5 — Generation and interface:**
-I will use Claude Code to design the grounding prompt and a simple command-line or notebook query wrapper. I will verify by asking sample questions and confirming that the answer cites the source URLs or chunk IDs.
+I used Claude Code to design the grounding prompt and an `ask()` end-to-end function (in `generator.py`) plus a Gradio interface (`app.py`). I verified by asking sample questions and confirming the answers cite the source threads, and that an out-of-domain question is declined.
+
+---
+
+## Stretch Features
+
+### Metadata Filtering (by source)
+
+**Goal:** Let the user restrict retrieval to a single source thread instead of searching all 10. Useful when a question targets a specific discussion (e.g. "in the *Why I Quit CS* thread, what reasons are given?").
+
+**Why this one:** It is the lowest-effort stretch feature for my stack. Every chunk is already stored in ChromaDB with `source_id` and `source_title` metadata, and ChromaDB supports server-side filtering via a `where` clause — so no re-embedding and no new dependencies are needed. (Date/rating filtering from the suggested list is not viable here: I did not store per-comment timestamps, and Reddit comments have no rating field, so source is the metadata I actually have.)
+
+**Approach:**
+- `retrieve(query, k, where=None)` passes an optional `where` filter through to `collection.query(where=...)`.
+- `ask(question, source_id=None)` builds the filter `{"source_id": source_id}` when a source is selected and passes it down.
+- The Gradio UI gains a "Filter by source" dropdown (default "All sources") listing the 10 thread titles; selecting one scopes retrieval to that thread.
+- Verification: run the same query with no filter vs. a single-source filter and confirm the filtered results all come from the chosen source.
