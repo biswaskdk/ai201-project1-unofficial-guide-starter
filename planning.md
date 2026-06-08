@@ -94,7 +94,7 @@ graph LR
     C["Embedding<br/>(sentence-transformers<br/>all-MiniLM-L6-v2)"]
     D["Vector Store<br/>(ChromaDB)"]
     E["Retrieval<br/>(semantic similarity<br/>top-5)"] 
-    F["Generation<br/>(Claude/Groq API)"]
+    F["Generation<br/>(Groq API)"]
     
     A --> B --> C --> D
     D --> E --> F
