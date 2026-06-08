@@ -50,7 +50,7 @@ The ~120-character overlap is a deliberate change from my original "no overlap" 
 
 The separate `context` field avoids two failure modes that would come from stuffing the post body into every chunk's embedded text: (1) truncation, since a long prefix would push the comment itself past the 256-token limit, and (2) homogenization, where a shared prefix pulls all of a thread's chunks toward the same vector and makes "I love Sahai" hard to distinguish from "avoid Sahai."
 
-**Final chunk count:** 185 chunks across 10 documents (lengths 30–921 characters), up from 160 under the original 2,000-character cap. FAISS handles the uneven sizes without issue.
+**Final chunk count:** 185 chunks across 10 documents (lengths 30–921 characters), up from 160 under the original 2,000-character cap. ChromaDB handles the uneven sizes without issue.
 
 ---
 
@@ -92,7 +92,7 @@ graph LR
     A["Document Ingestion<br/>(saved Reddit JSON / .txt)"] 
     B["Chunking<br/>(comment-based,<br/>char cap + overlap)"] 
     C["Embedding<br/>(sentence-transformers<br/>all-MiniLM-L6-v2)"]
-    D["Vector Store<br/>(FAISS)"]
+    D["Vector Store<br/>(ChromaDB)"]
     E["Retrieval<br/>(semantic similarity<br/>top-5)"] 
     F["Generation<br/>(Claude/Groq API)"]
     
@@ -111,7 +111,7 @@ graph LR
 - **Document Ingestion:** Load each thread from a locally saved Reddit `.json` export (or a `.txt` copy), parse the post + comments, and clean them (unescape HTML, drop deleted/removed/bot/short comments). Live web fetching is out of scope: Reddit blocks unauthenticated requests (HTTP 403) and the only working route is the OAuth API, which adds credentials and a dependency we don't need.
 - **Chunking:** Split by Reddit comment boundaries; cap posts/comments at 800 characters (tuned to the embedding model's ~1,000-char window) using paragraph → sentence breaks, with ~120-char overlap between pieces of one split item.
 - **Embedding:** Convert chunks to vectors using all-MiniLM-L6-v2
-- **Vector Store:** Index embeddings in FAISS for fast similarity search
+- **Vector Store:** Index embeddings in ChromaDB (persistent, cosine distance) with source metadata for fast similarity search and attribution
 - **Retrieval:** Semantic similarity search, return top-5 relevant chunks
 - **Generation:** Prompt LLM with retrieved chunks, enforce grounding, add source citations
 

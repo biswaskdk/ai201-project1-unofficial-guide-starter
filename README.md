@@ -56,9 +56,9 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
      Consider: context length limits, multilingual support, accuracy on domain-specific text,
      latency, and local vs. API-hosted. -->
 
-**Model used:**
+**Model used:** `all-MiniLM-L6-v2` (sentence-transformers), run locally — no API key, no rate limits. It produces 384-dimensional embeddings. I embed each chunk's `text` field and store the vectors in a persistent ChromaDB collection using cosine distance, with the source metadata attached to every chunk. I chose it as the recommended lightweight default: it is fast on CPU, free, and accurate enough on short student-opinion text. Its 256-token (~1,000-character) context window also directly shaped my chunking — it is why I capped chunks at 800 characters, so no chunk is truncated at embedding time.
 
-**Production tradeoff reflection:**
+**Production tradeoff reflection:** If I were deploying this for real users and cost weren't a constraint, I would weigh a larger or domain-tuned embedding model, or a hosted embedding API. The tradeoffs: (1) **Context length** — a model with a larger window would let me keep long reviews whole instead of splitting them, preserving more semantic context per vector. (2) **Domain accuracy** — MiniLM can treat professor nicknames and course codes (e.g. "61B", "Hilfinger") as low-signal tokens; a stronger or fine-tuned model would capture that nuance better. (3) **Latency & local vs. API** — local embedding is private (these are student opinions) and has no rate limits, whereas a hosted API adds latency and a privacy consideration but may improve quality. I saw the model's limits concretely in testing: it retrieved well on topical queries, but ranked a generic, referent-less reply chunk highly because a small model leans on surface lexical overlap — a more capable model would likely down-weight it (see Failure Case Analysis).
 
 ---
 
@@ -109,13 +109,13 @@ My approach is **comment-based chunking with an embedding-aware size cap and ove
      "The embedding model treated the professor's nickname as out-of-vocabulary and returned
      results from an unrelated review" is an explanation. -->
 
-**Question that failed:**
+**Question that failed:** "What happens if you take a hard professor for an intro CS class?" (the same chunk also wrongly topped "What qualities make a CS professor great?").
 
-**What the system returned:**
+**What the system returned:** The #1 retrieved chunk (cosine distance ~0.377) was a reply from the "Best Professors" thread: *"I second this. I recommend that everyone, not just cs majors take at least one of his classes."* This says nothing about hard professors or intro classes — it is a generic endorsement. The same chunk surfaced as a top hit across three different queries.
 
-**Root cause (tied to a specific pipeline stage):**
+**Root cause (tied to a specific pipeline stage):** The ingestion/chunking stage. My chunking is comment-based, so each comment becomes a chunk independently of its parent. This reply was severed from the comment it was agreeing with, so "his classes" lost its referent (which professor?). What remains is a generic recommendation phrase whose embedding sits close to many professor/class queries. Retrieval then did its job correctly — it returned a genuinely nearby vector — but the chunk had no standalone meaning, and the small embedding model matched it on surface lexical overlap ("cs", "classes", "recommend") rather than topical relevance. The defect is upstream of retrieval, not in it.
 
-**What you would change to fix it:**
+**What you would change to fix it:** Preserve the referent during ingestion. The cleanest fix is to attach the parent comment (or at least the professor name it mentions) to a reply chunk's `context`, the same way I already attach the thread's original post — so a reply like "I second this" carries what it is seconding. A cheaper alternative is to drop or merge referent-less short replies that begin with "I second", "agreed", "this", etc., though that risks discarding some real signal.
 
 ---
 
